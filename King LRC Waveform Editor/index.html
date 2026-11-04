@@ -122,6 +122,7 @@
     flex: 1; min-height: 0; overflow-y: auto; margin-top: 10px;
     background: #fff; border: 1px solid #d2e2da; border-radius: 10px;
     padding: 10px; display: flex; flex-direction: column; gap: 6px;
+    box-sizing: border-box;
   }
   #stampList .sp-item {
     flex: none; display: flex; align-items: center; gap: 12px;
@@ -150,6 +151,18 @@
   #stampList .sp-item.cursor .sp-time { background: #0d9b6a; color: #fff; border-color: #0d9b6a; }
   #stampList .sp-text { flex: 1; min-width: 0; color: #2b3f36; line-height: 1.5; word-break: break-word; }
   #stampList .sp-text.empty { color: #a7bdb2; font-style: italic; }
+  #stampList .sp-input {
+    flex: 1; min-width: 0;
+    font-size: 14px; font-family: inherit;
+    color: #1f2937; background: #fff;
+    border: 1.5px solid #0d9b6a; border-radius: 6px;
+    padding: 3px 8px; outline: none;
+    box-shadow: 0 0 0 2px rgba(13,155,106,.18);
+    box-sizing: border-box; height: 28px;
+    caret-color: #0d9b6a;
+    user-select: text;
+  }
+  #stampList .sp-input::placeholder { color: #9fb5a9; font-style: italic; }
   #stampList .sp-idx {
     flex: none; width: 28px; text-align: right; color: #94a8a0;
     font: 12px Consolas, "Cascadia Mono", monospace;
@@ -425,7 +438,7 @@
   <div class="toolbar-group">
     <div class="seg">
       <button id="btnViewWave" class="on" title="波形 + 歌词卡片；拖卡片对时间轴 · 在空白处拖框可框选多条一起拖">波形编辑</button>
-      <button id="btnViewStamp" title="纯文本词条逐句打轴：播放中按回车把当前句时间设为播放点 · 双击/快速多击回车 = 多语言时间同步">打轴编辑</button>
+      <button id="btnViewStamp" title="纯文本词条逐句打轴：播放中按回车打轴 · 双击编辑歌词 · Delete键删除选中行">打轴编辑</button>
       <button id="btnViewLyric" title="隐藏波形，纯文字编辑校对歌词">歌词编辑</button>
     </div>
   </div>
@@ -460,7 +473,7 @@
             <li>2. 鼠标滚轮在歌词区域可滚动歌词；</li>
             <li>3. 歌曲播放时，点击波形图切换当前播放位置；</li>
             <li>4. 歌词条可框选多个，进行拖拽、复制粘贴和删除操作；</li>
-            <li>5. 波形区域快速双击，新建歌词条。</li>
+            <li>5. 波形区域快速双击新建歌词条；打轴编辑模式下，双击歌词行可直接编辑歌词。</li>
           </ol>
         </div>
         <div class="hp-group">
@@ -469,9 +482,11 @@
             <li>1. <kbd>Ctrl</kbd> + <kbd>鼠标滚轮</kbd>：可任意位置缩放波形。</li>
             <li>2. <kbd>空格</kbd>：歌曲播放和暂停切换。</li>
             <li>3. <kbd>Ctrl</kbd> + <kbd>A</kbd>：全选所有歌词条。</li>
-            <li>4. <kbd>Delete</kbd>：删除选择的歌词条（可删除多条）。</li>
+            <li>4. <kbd>Delete</kbd>：删除选择的歌词条（可删除多条）；在打轴编辑模式下，删除选中的当前行。</li>
             <li>5. <kbd>Tab</kbd>：切换播放速度。</li>
             <li>6. <kbd>回车</kbd>：在打轴编辑模式下，单击是打轴，双击或快速多击是多语言时间同步打轴。</li>
+            <li>7. <kbd>←</kbd> / <kbd>→</kbd>：快退 / 快进播放进度（Shift 键微调 1s，默认 3s）。</li>
+            <li>8. <kbd>↑</kbd> / <kbd>↓</kbd>：在打轴编辑模式下，跳转到上一行 / 下一行打轴。</li>
           </ol>
         </div>
       </div>
@@ -504,7 +519,7 @@
   <div id="stampPanel">
     <div class="sp-bar">
       <span class="sp-pos" id="stampPos">打轴：第 1 / 0 句</span>
-      <span class="sp-hint">播放歌曲听到某句起点时按 <b>回车</b> 给当前词条打轴并自动切到下一句；<b>0.5s 内快速多击回车</b> = 多语言各行时间同步（与第一句一致）。</span>
+      <span class="sp-hint">按 <b>回车</b> 打轴；<b>↑ / ↓</b> 切换上一行/下一行；<b>← / →</b> 快退/快进进度；<b>空格</b> 播放/暂停；<b>双击行</b> 编辑歌词；按 <b>Delete</b> 删除选中行。</span>
     </div>
     <div id="stampList"></div>
   </div>
@@ -1204,6 +1219,7 @@ let stampRows = [];       // 词条行：{ text, time, el }，顺序固定 = 歌
 let stampCursor = 0;      // 打轴游标：回车会打到这一行
 let stampLastAt = 0;      // 上次回车时刻（Date.now），用于 0.5s 快速多击判定
 let stampGroupTime = null;// 连击组共用时间（快速多击 = 多语言同步，与组内第一句一致）
+let stampDone = false;    // 全曲打轴完成标志：打到最后一行后定格，左侧时间不再随播放刷新
 
 /* 从当前 blocks 拍平重建词条列表（进入打轴视图 / 歌词数据变化后调用） */
 function rebuildStampRows() {
@@ -1212,16 +1228,18 @@ function rebuildStampRows() {
     b.texts.forEach(t => stampRows.push({ text: t.text, time: b.time }));
   });
   stampCursor = 0;
-  stampLastAt = 0; stampGroupTime = null;
+  stampLastAt = 0; stampGroupTime = null; stampDone = false;
   renderStampList();
 }
 function renderStampList() {
   stampList.innerHTML = '';
   if (!stampRows.length) {
+    stampList.classList.add('empty');
     stampList.innerHTML = '<div class="sp-empty">还没有词条可打轴<br>到「波形编辑」双击波形新建歌词，或到「歌词编辑」粘贴纯文本歌词，再回到这里逐句打轴</div>';
     updateStampBar();
     return;
   }
+  stampList.classList.remove('empty');
   stampRows.forEach((r, i) => {
     const li = document.createElement('div');
     li.className = 'sp-item' + (i === stampCursor ? ' cursor' : '');
@@ -1233,28 +1251,136 @@ function renderStampList() {
     const idx = document.createElement('span'); idx.className = 'sp-idx'; idx.textContent = i + 1;
     r.el = li;                      // 缓存元素引用：播放同步 / 游标行实时刷新直接改，无需重建
     li.append(tm, tx, idx);
-    li.addEventListener('pointerdown', ev => { ev.preventDefault(); setStampCursor(i, true); });
+    li.addEventListener('pointerdown', ev => {
+      if (ev.target.tagName === 'INPUT') return;
+      if (ev.button !== 0) return;
+      setStampCursor(i, true);
+    });
+    li.addEventListener('dblclick', ev => {
+      if (ev.target.tagName === 'INPUT') return;
+      if (ev.button !== 0) return;
+      ev.preventDefault();
+      editStampRow(i);
+    });
     stampList.appendChild(li);
   });
   updateStampBar();
-  scrollStampIntoView();
+  scrollStampIntoView(false);
 }
 function setStampCursor(i, manual = false) {
   stampCursor = Math.max(0, Math.min(i, stampRows.length - 1));
+  stampDone = false;
   const items = stampList.children;
   for (let k = 0; k < items.length; k++) items[k].classList.toggle('cursor', k === stampCursor);
   if (manual) { stampLastAt = 0; stampGroupTime = null; }   // 手动点选 = 打断连击组，下次回车开新组
+  if (document.activeElement && document.activeElement.tagName === 'BUTTON') document.activeElement.blur();
   updateStampBar();
-  scrollStampIntoView();
+  scrollStampIntoView(true);
+  if (stampMode && !stampDone) stampCursorLive(audio.currentTime || 0);
+}
+/* 双击就地编辑歌词行 */
+function editStampRow(i) {
+  if (i < 0 || i >= stampRows.length) return;
+  const row = stampRows[i];
+  const li = row.el || stampList.children[i];
+  if (!li) return;
+  if (li.querySelector('.sp-input')) return; // 避免重复创建
+
+  setStampCursor(i, true);
+
+  const tx = li.querySelector('.sp-text');
+  const idx = li.querySelector('.sp-idx');
+  if (!tx) return;
+
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.className = 'sp-input';
+  input.value = row.text || '';
+  input.placeholder = '输入歌词…';
+  input.spellcheck = false;
+
+  tx.style.display = 'none';
+  li.insertBefore(input, idx);
+
+  let finished = false;
+  function finish(save) {
+    if (finished) return;
+    finished = true;
+    if (save) {
+      row.text = input.value;
+      if (row.text) {
+        tx.textContent = row.text;
+        tx.classList.remove('empty');
+      } else {
+        tx.textContent = '（空行占位）';
+        tx.classList.add('empty');
+      }
+      flushStampToBlocks();
+    }
+    input.remove();
+    tx.style.display = '';
+  }
+
+  input.addEventListener('keydown', e => {
+    e.stopPropagation(); // 阻止向外冒泡干扰全局快捷键（如空格播放、全局打轴、删除行等）
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      finish(true);
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      finish(false);
+    }
+  });
+
+  input.addEventListener('blur', () => {
+    finish(true);
+  });
+
+  input.addEventListener('pointerdown', e => e.stopPropagation());
+  input.addEventListener('click', e => e.stopPropagation());
+  input.addEventListener('dblclick', e => e.stopPropagation());
+
+  input.focus();
+  input.select();
+}
+
+/* 删除打轴当前选中的词条行 */
+function deleteStampRow(index = stampCursor) {
+  if (!stampRows.length || index < 0 || index >= stampRows.length) return;
+  stampRows.splice(index, 1);
+  if (!stampRows.length) {
+    stampCursor = 0;
+  } else if (stampCursor >= stampRows.length) {
+    stampCursor = stampRows.length - 1;
+  }
+  stampLastAt = 0;
+  stampGroupTime = null;
+  stampDone = false;
+  flushStampToBlocks();
+  renderStampList();
+  toast('已删除该行歌词');
 }
 function updateStampBar() {
   $('stampPos').textContent = stampRows.length
     ? '打轴：第 ' + (stampCursor + 1) + ' / ' + stampRows.length + ' 句'
     : '打轴：无词条';
 }
-function scrollStampIntoView() {
+/* 滚动列表使当前焦点行（stampCursor）保持在中间：前几行紧贴上方不留白，后几行贴底不留白 */
+function scrollStampIntoView(smooth = true) {
   const cur = stampList.children[stampCursor];
-  if (cur) cur.scrollIntoView({ block: 'nearest' });
+  if (!cur || !cur.classList.contains('sp-item')) return;
+  const listRect = stampList.getBoundingClientRect();
+  const curRect = cur.getBoundingClientRect();
+  if (listRect.height === 0) {
+    requestAnimationFrame(() => scrollStampIntoView(false));
+    return;
+  }
+  const maxScroll = Math.max(0, stampList.scrollHeight - stampList.clientHeight);
+  const diff = (curRect.top + curRect.height / 2) - (listRect.top + listRect.height / 2);
+  const targetTop = Math.max(0, Math.min(stampList.scrollTop + diff, maxScroll));
+  if (Math.abs(stampList.scrollTop - targetTop) >= 1) {
+    stampList.scrollTo({ top: targetTop, behavior: smooth ? 'smooth' : 'auto' });
+  }
 }
 /* 回车打轴：当前游标行 time = 播放点；0.5s 内连续回车沿用组内第一句的时间（多语言同步） */
 function stampEnter() {
@@ -1276,7 +1402,8 @@ function stampEnter() {
   if (stampCursor < stampRows.length - 1) {
     setStampCursor(stampCursor + 1, false);    // 自动顺延下一句（连击链不断）
   } else {
-    toast('已打到最后一句话，停在末尾：点选任意词条可继续打轴');
+    stampDone = true;
+    toast('已打到最后一句话，打轴完成！');
   }
 }
 /* 回写 state.blocks：按时间重排，同一时间的行合并为一张双语同轴卡（与导入解析语义一致） */
@@ -1423,6 +1550,20 @@ seekBar.addEventListener('input', () => {
   $('timeCur').textContent = fmt(v);
 });
 
+/* 键盘快进 / 快退控制播放进度 */
+function seekDelta(seconds) {
+  if (!state.loaded) return;
+  const cur = audio.currentTime || 0;
+  const next = Math.max(0, Math.min(cur + seconds, state.duration || 0));
+  audio.currentTime = next;
+  $('timeCur').textContent = fmt(next);
+  seekBar.value = next;
+  playheadEl.style.top = (next * effPps()) + 'px';
+  syncActiveLyric(next);
+  if (stampMode && !stampDone) stampCursorLive(next);
+  stampLastAt = 0; stampGroupTime = null;
+}
+
 function scrollToTime(t) {
   scrollOuter.scrollTop = Math.max(0, t * effPps() - scrollOuter.clientHeight / 2);
 }
@@ -1447,8 +1588,9 @@ function syncActiveLyric(t) {
   applyLayers();   // 播放进行到新的一句 → 自动把该句卡片置顶到普通块之上（低于手动选中）
 }
 
-/* 打轴游标行：时间徽章实时显示当前播放时间（走动的"待写入值"预览）；暂停即定格不再刷 */
+/* 打轴游标行：时间徽章实时显示当前播放时间（走动的"待写入值"预览）；暂停或打轴完成即定格不再刷 */
 function stampCursorLive(t) {
+  if (stampDone) return;
   const row = stampRows[stampCursor], li = row && row.el;
   if (!li) return;
   const tm = li.querySelector('.sp-time');
@@ -1636,20 +1778,51 @@ window.addEventListener('keydown', e => {
     cycleRate();
     return;
   }
-  if (e.code === 'Space' && !e.isComposing) {
-    const et = e.target, tg = et.tagName;
-    const textable = tg === 'TEXTAREA' || et.isContentEditable ||
-      (tg === 'INPUT' && !['checkbox', 'radio', 'range', 'file', 'button', 'submit', 'reset'].includes((et.type || '').toLowerCase()));
+  const et = e.target, tg = et.tagName;
+  const textable = tg === 'TEXTAREA' || et.isContentEditable ||
+    (tg === 'INPUT' && !['checkbox', 'radio', 'range', 'file', 'button', 'submit', 'reset'].includes((et.type || '').toLowerCase()));
+
+  // 空格：切换播放/暂停（非文本输入时始终生效）
+  if ((e.code === 'Space' || e.key === ' ' || e.key === 'Spacebar') && !e.isComposing) {
     if (!textable) {
       e.preventDefault();
       if (!e.repeat) togglePlay();
       return;
     }
   }
+
+  // 左右方向键：始终监听，控制播放进度（Shift 键精细微调 1s，默认 3s，Ctrl/Cmd 5s）
+  if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && !textable && !e.isComposing) {
+    e.preventDefault();
+    const step = e.shiftKey ? 1 : ((e.ctrlKey || e.metaKey) ? 5 : 3);
+    seekDelta(e.key === 'ArrowLeft' ? -step : step);
+    return;
+  }
+
+  // 上下方向键：打轴模式下跳转到上一行 / 下一行打轴
+  if (stampMode && (e.key === 'ArrowUp' || e.key === 'ArrowDown') && !textable && !e.isComposing) {
+    e.preventDefault();
+    if (stampRows.length) {
+      const delta = e.key === 'ArrowUp' ? -1 : 1;
+      const nextIdx = Math.max(0, Math.min(stampRows.length - 1, stampCursor + delta));
+      if (nextIdx !== stampCursor || stampDone) {
+        setStampCursor(nextIdx, true);
+        if (!stampDone) stampCursorLive(audio.currentTime);
+      }
+    }
+    return;
+  }
   // Delete / Backspace：非文本输入状态下删除所有选中的歌词块（文本输入时仍是正常删除文字）
   // Delete = 全局删除：只要选中了歌词块就整组删除，不做输入框豁免
   // Backspace 仍在文本输入状态下放行（删字用），避免打字时误删整块
   const typing = e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA';
+  if (stampMode && !typing && !$('exportModal').classList.contains('show')) {
+    if ((e.key === 'Delete' || e.key === 'Backspace') && stampRows.length) {
+      e.preventDefault();
+      deleteStampRow(stampCursor);
+      return;
+    }
+  }
   if (e.key === 'Delete' && selSet.size) {
     e.preventDefault();
     [...selSet].forEach(b => removeBlock(b));
@@ -1680,6 +1853,9 @@ window.addEventListener('keydown', e => {
       if (stampMode && !$('exportModal').classList.contains('show')) stampEnter();
     }
   }
+});
+window.addEventListener('resize', () => {
+  if (stampMode) scrollStampIntoView(false);
 });
 
 /* ================= 示例歌曲（离线合成 + WAV 编码） ================= */
